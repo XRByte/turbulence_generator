@@ -3,9 +3,6 @@
 
 #include "../../TurbGen.h"
 
-#ifdef TURBULENCE_GENERATOR_H
-#ifdef BL_AMREX_H
-
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -41,7 +38,7 @@
 #include "AMReX_ParallelDescriptor.H"
 #include "AMReX_REAL.H"
 
-class TurbGenAmrex : public TurbGen {
+class TurbGenEx : public TurbGen {
 private:
   amrex::Gpu::DeviceVector<double> modes_gpu[3], aka_gpu[3],
       akb_gpu[3]; // Mode arrays,
@@ -49,36 +46,6 @@ private:
   amrex::Gpu::DeviceVector<double> ampl_gpu;
   amrex::Gpu::DeviceVector<double> ampl_factor_gpu;
 
-public:
-  // Prevents overloaded methods from hiding base class methods of different
-  // signature.
-  using TurbGen::check_for_update;
-  using TurbGen::get_turb_vector_unigrid;
-  using TurbGen::init_driving;
-
-public:
-  int init_driving(std::string parameter_file, const double time) override {
-    TurbGen::init_driving(parameter_file, time);
-    initial_sync_to_gpu();
-    return 0;
-  }
-
-public:
-  bool check_for_update(const double time, const double v_turb[]) override {
-    // ******************************************************
-    // Update driving pattern based on input 'time'.
-    // If it is 'time' to update the pattern, call OU noise update
-    // and update the decomposition coefficients; otherwise, simply return.
-    // Identical to base class expect for call to sync_to_gpu() if an update has
-    // occurred.
-    // ******************************************************
-    bool pattern_changed = TurbGen::check_for_update(time, v_turb);
-    if (pattern_changed)
-      sync_to_gpu();
-    return pattern_changed;
-  };
-
-private:
   void initial_sync_to_gpu() {
     ampl_gpu.resize(ampl.size());
     ampl_factor_gpu.resize(3);
@@ -97,7 +64,6 @@ private:
     }
   }
 
-private:
   void sync_to_gpu() {
     {
       amrex::Gpu::PinnedVector<double> pinnedAmpl(ampl.size());
@@ -129,6 +95,33 @@ private:
   } // sync_to_gpu
 
 public:
+  // Prevents overloaded methods from hiding base class methods of different
+  // signature.
+  using TurbGen::check_for_update;
+  using TurbGen::get_turb_vector_unigrid;
+  using TurbGen::init_driving;
+
+  int init_driving(std::string parameter_file, const double time) override {
+    TurbGen::init_driving(parameter_file, time);
+    initial_sync_to_gpu();
+    return 0;
+  }
+
+  bool check_for_update(const double time,
+                        const std::vector<double> &v_turb) override {
+    // ******************************************************
+    // Update driving pattern based on input 'time'.
+    // If it is 'time' to update the pattern, call OU noise update
+    // and update the decomposition coefficients; otherwise, simply return.
+    // Identical to base class expect for call to sync_to_gpu() if an update has
+    // occurred.
+    // ******************************************************
+    bool pattern_changed = TurbGen::check_for_update(time, v_turb);
+    if (pattern_changed)
+      sync_to_gpu();
+    return pattern_changed;
+  };
+
   void get_turb_vector_unigrid(
       amrex::FArrayBox &fab,
       amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const &cellSizes) {
@@ -207,15 +200,13 @@ public:
          nmodes = this->nmodes] AMREX_GPU_DEVICE(int i, int j, int k, int m) {
           const int SIN_INDEX = m;
           const int COS_INDEX = m + nmodes;
-          if (AMREX_SPACEDIM > 2) {
-            zPrecomp(i, j, k, SIN_INDEX) =
-                sin(modesPointers[Z][m] * (k * cellSizes[Z]));
-            zPrecomp(i, j, k, COS_INDEX) =
-                cos(modesPointers[Z][m] * (k * cellSizes[Z]));
-          } else {
-            zPrecomp(i, j, k, SIN_INDEX) = 0.0;
-            zPrecomp(i, j, k, COS_INDEX) = 1.0;
-          }
+
+          zPrecomp(i, j, k, SIN_INDEX) =
+              AMREX_SPACEDIM > 2 ? sin(modesPointers[Z][m] * (k * cellSizes[Z]))
+                                 : 0.0;
+          zPrecomp(i, j, k, COS_INDEX) =
+              AMREX_SPACEDIM > 2 ? cos(modesPointers[Z][m] * (k * cellSizes[Z]))
+                                 : 1.0;
         });
 
     // Get pointers to pass to parallelFor (Necessary for GPU)
@@ -282,6 +273,4 @@ public:
   } // get_turb_vector_unigrid (AMReX overload)
 };
 
-#endif // BL_AMREX_H defined
-#endif // TURBULENCE_GENERATOR_H defined
 #endif // TURBULENCE_GEN_AmreX_H *NOT* defined

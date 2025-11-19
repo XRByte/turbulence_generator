@@ -42,26 +42,6 @@
 #include <string>
 #include <vector>
 
-#include "AMReX.H"
-#include "AMReX_Arena.H"
-#include "AMReX_Array.H"
-#include "AMReX_Array4.H"
-#include "AMReX_BCRec.H"
-#include "AMReX_BLassert.H"
-#include "AMReX_Box.H"
-#include "AMReX_FArrayBox.H"
-#include "AMReX_FabArray.H"
-#include "AMReX_FabFactory.H"
-#include "AMReX_Geometry.H"
-#include "AMReX_GpuControl.H"
-#include "AMReX_GpuDevice.H"
-#include "AMReX_GpuQualifiers.H"
-#include "AMReX_IntVect.H"
-#include "AMReX_MultiFab.H"
-#include "AMReX_MultiFabUtil.H"
-#include "AMReX_ParallelDescriptor.H"
-#include "AMReX_REAL.H"
-
 namespace NameSpaceTurbGen {
 // constants
 static const int tgd_max_nmodes = 100000;
@@ -456,7 +436,7 @@ public:
   bool check_for_update(const double time) {
     // call overloaded check_for_update() without automatic amplitude adjustment
     // (v_turb < 0)
-    double v_turb[3];
+    std::vector<double> v_turb(3);
     for (int d = 0; d < 3; d++)
       v_turb[d] = -1.0;
     return check_for_update(time, v_turb);
@@ -464,7 +444,8 @@ public:
 
   // ******************************************************
 public:
-  virtual bool check_for_update(const double time, const double v_turb[]) {
+  virtual bool check_for_update(const double time,
+                                const std::vector<double> &v_turb) {
     // ******************************************************
     // Update driving pattern based on input 'time'.
     // If it is 'time' to update the pattern, call OU noise update
@@ -553,7 +534,7 @@ public:
   // ******************************************************
 public:
   bool write_to_evol_file(const double time, const double ampl_factor[],
-                          const double v_turb[]) {
+                          const std::vector<double> v_turb) {
     if (verbose > 1)
       TurbGen_printf(
           "Writing to evolution file: time = %e, time/t_turb = %-7.2f\n", time,
