@@ -106,7 +106,7 @@ class TurbGenEx : public TurbGen
 		return 0;
 	}
 
-	bool check_for_update(const double time, const std::vector<double> &v_turb) override
+	bool check_for_update(const double time, const double v_turb[3]) override
 	{
 		// ******************************************************
 		// Update driving pattern based on input 'time'.
