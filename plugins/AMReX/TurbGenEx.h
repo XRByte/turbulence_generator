@@ -99,6 +99,9 @@ class TurbGenEx : public TurbGen
 	using TurbGen::get_turb_vector_unigrid;
 	using TurbGen::init_driving;
 
+	TurbGenEx()
+        : TurbGen(amrex::ParallelDescriptor::IOProcessorNumber()) {}
+
 	int init_driving(std::string parameter_file, const double time) override
 	{
 		TurbGen::init_driving(parameter_file, time);
