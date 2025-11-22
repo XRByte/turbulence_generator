@@ -326,7 +326,7 @@ class TurbGen
     }; // check_for_update(time)
 
     // ******************************************************
-    public: virtual bool check_for_update(const double time, const double v_turb[3]) {
+    public: virtual bool check_for_update(const double time, const double v_turb[]) {
         // ******************************************************
         // Update driving pattern based on input 'time'.
         // If it is 'time' to update the pattern, call OU noise update
@@ -382,7 +382,7 @@ class TurbGen
     }; // check_for_update(time, v_turb)
 
     // ******************************************************
-    public: bool write_to_evol_file(const double time, const double ampl_factor[], const double v_turb[3]) {
+    public: bool write_to_evol_file(const double time, const double ampl_factor[], const double v_turb[]) {
         if (verbose > 1) TurbGen_printf("Writing to evolution file: time = %e, time/t_turb = %-7.2f\n", time, time/t_decay);
         std::ofstream outfilestream(evolfile.c_str(), std::ios::app);
         outfilestream.precision(16);
