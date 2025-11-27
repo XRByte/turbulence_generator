@@ -253,7 +253,7 @@ class TurbGen
         dummystream << ncmp; dummystream >> ncmp_str; dummystream.clear();
         // read remaining parameters from file
         ret = read_from_parameter_file("L", ncmp_str+"d"); // Length of domain (box) x[y[z]]
-        for (unsigned int d = 0; d < ncmp; d++) L[d] = ret[d];
+        for (int d = 0; d < ncmp; d++) L[d] = ret[d];
         ret = read_from_parameter_file("velocity", "d"); velocity = ret[0]; // Target turbulent velocity dispersion
         ret = read_from_parameter_file("k_driv", "d"); k_driv = ret[0]; // driving wavenumber in 2pi/L; sets t_decay below
         ret = read_from_parameter_file("k_min", "d"); k_min = ret[0]; // min wavenumber in 2pi/L
@@ -264,7 +264,7 @@ class TurbGen
         power_law_exp_2 = power_law_exp; // driving does not support a 2nd PL section (yet)
         ret = read_from_parameter_file("angles_exp", "d"); angles_exp = ret[0]; // angles sampling exponent (if spect_form=2)
         ret = read_from_parameter_file("ampl_factor", ncmp_str+"d"); // adjust driving amplitude by factor in x[y[z]] (to adjust to target velocity)
-        for (unsigned int d = 0; d < ncmp; d++) ampl_factor[d] = ret[d];
+        for (int d = 0; d < ncmp; d++) ampl_factor[d] = ret[d];
         ret = read_from_parameter_file("ampl_auto_adjust", "i"); ampl_auto_adjust = (int)ret[0]; // automatic amplitude adjustment switch
         ret = read_from_parameter_file("random_seed", "i"); random_seed = (int)ret[0]; // random seed
         ret = read_from_parameter_file("nsteps_per_t_turb", "i"); nsteps_per_t_turb = (int)ret[0]; // number of pattern updates per t_decay
@@ -290,7 +290,7 @@ class TurbGen
             if (!read_ampl_factor_from_evol_file(time)) return -1;
         // We raise the user-set ampl_factor to the 1.5th power, so the user can more easily adjust this as a pure factor
         // of target-to-measured velocity disperion (this is because the amplitude is actually ~ velocity^1.5; see just above).
-        for (unsigned int d = 0; d < ncmp; d++) ampl_factor[d] = pow(ampl_factor[d], 1.5);
+        for (int d = 0; d < ncmp; d++) ampl_factor[d] = pow(ampl_factor[d], 1.5);
         if (verbose) TurbGen_printf("===============================================================================\n");
         // set solenoidal weight normalisation
         set_solenoidal_weight_normalisation();
@@ -417,14 +417,14 @@ class TurbGen
                 std::vector<std::string> line_split((std::istream_iterator<std::string>(buffer)), std::istream_iterator<std::string>());
                 double time_in_file = double(atof(line_split[0].c_str())); // time
                 double ampl_factor_in_file[3];
-                for (unsigned int d = 0; d < ncmp; d++) ampl_factor_in_file[d] = double(atof(line_split[d+2].c_str()));
+                for (int d = 0; d < ncmp; d++) ampl_factor_in_file[d] = double(atof(line_split[d+2].c_str()));
                 if (verbose > 1) TurbGen_printf("time_in_file, ampl_factor_in_file = %e %e %e %e\n", time_in_file, ampl_factor_in_file[X], ampl_factor_in_file[Y], ampl_factor_in_file[Z]);
                 if (!initial_copy_done) { // copy the last valid ampl_factor from the evolution file
-                    for (unsigned int d = 0; d < ncmp; d++) ampl_factor[d] = ampl_factor_in_file[d];
+                    for (int d = 0; d < ncmp; d++) ampl_factor[d] = ampl_factor_in_file[d];
                     initial_copy_done = true;
                 }
                 if (time_in_file >= time-1.1*dt) { // search backwards and update ampl_factor with last valid time
-                    for (unsigned int d = 0; d < ncmp; d++) ampl_factor[d] = ampl_factor_in_file[d];
+                    for (int d = 0; d < ncmp; d++) ampl_factor[d] = ampl_factor_in_file[d];
                 }
                 else break;
             }
@@ -697,7 +697,7 @@ class TurbGen
         if (verbose > 1) TurbGen_printf(FuncSig(__func__)+"entering.\n");
 
         int ikmin[3], ikmax[3], ik[3], tot_nmodes_full_sampling;
-        double k[3], ka, kc, amplitude, parab_prefact;
+        double k[3], ka, kc, amplitude = 0.0, parab_prefact;
 
         // applies in case of power law (spect_form == 2)
         int iang, nang;
