@@ -22,28 +22,46 @@ Directory 'python' contains a python frontend, which calls TurbGen to generate s
 * Make your own modifications, commit, push, etc.
 * If you want (some of) your own changes to go into this main repo, please create a pull request.
 
-### Copyright notes ###
-
-If you use this code, please refer to and cite Federrath et al. (2010, A&A 512, A81):
-https://ui.adsabs.harvard.edu/abs/2010A%26A...512A..81F/abstract
-
-@ARTICLE{2010A&A...512A..81F,<br/>
-author = {{Federrath}, C. and {Roman-Duval}, J. and {Klessen}, R.~S. and {Schmidt}, W. and {Mac Low}, M. -M.},<br/>
-title = "{Comparing the statistics of interstellar turbulence in simulations and observations. Solenoidal versus compressive turbulence forcing}",<br/>
-journal = {\aap},<br/>
-keywords = {hydrodynamics, ISM: clouds, ISM: kinematics and dynamics, methods: numerical, methods: statistical, turbulence, Astrophysics - Solar and Stellar Astrophysics, Astrophysics - Instrumentation and Methods for Astrophysics},<br/>
-year = 2010,<br/>
-month = mar,<br/>
-volume = {512},<br/>
-eid = {A81},<br/>
-pages = {A81},<br/>
-doi = {10.1051/0004-6361/200912437},<br/>
-archivePrefix = {arXiv},<br/>
-eprint = {0905.1060},<br/>
-primaryClass = {astro-ph.SR},<br/>
-adsurl = {https://ui.adsabs.harvard.edu/abs/2010A&A...512A..81F },<br/>
-adsnote = {Provided by the SAO/NASA Astrophysics Data System}}
-
 ### Main contact ###
 
 * Christoph Federrath (christoph.federrath@anu.edu.au)
+
+### Citation ###
+
+If you use TurbGen for scientific work, please cite the following paper:
+
+**Federrath et al. (2010), A&A 512, A81**
+
+"Comparing the statistics of interstellar turbulence in simulations and observations: Solenoidal versus compressive turbulence forcing"
+
+DOI: https://doi.org/10.1051/0004-6361/200912437
+
+ADS: https://ui.adsabs.harvard.edu/abs/2010A%26A...512A..81F
+
+BibTeX:
+```bibtex
+@ARTICLE{2010A&A...512A..81F,
+  author = {{Federrath}, C. and {Roman-Duval}, J. and {Klessen}, R.~S. and 
+            {Schmidt}, W. and {Mac Low}, M.-M.},
+  title = "{Comparing the statistics of interstellar turbulence in simulations and 
+            observations. Solenoidal versus compressive turbulence forcing}",
+  journal = {Astronomy and Astrophysics},
+  year = 2010,
+  month = mar,
+  volume = {512},
+  eid = {A81},
+  pages = {A81},
+  doi = {10.1051/0004-6361/200912437},
+  eprint = {0905.1060},
+  archivePrefix = {arXiv},
+  primaryClass = {astro-ph.SR}
+}
+```
+
+### Copyright notes ###
+
+See LICENSE file.
+
+### Disclaimer ###
+
+This software is provided "as is", with use at your own risk. No warranties as to performance, fitness for a particular purpose, or any other warranties are made, whether expressed or implied.
