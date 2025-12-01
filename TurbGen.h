@@ -277,53 +277,9 @@ class TurbGen
         ret = read_from_parameter_file("ampl_auto_adjust", "i"); ampl_auto_adjust = (int)ret[0]; // automatic amplitude adjustment switch
         ret = read_from_parameter_file("random_seed", "i"); random_seed = (int)ret[0]; // random seed
         ret = read_from_parameter_file("nsteps_per_t_turb", "i"); nsteps_per_t_turb = (int)ret[0]; // number of pattern updates per t_decay
-        // define derived physical quantities
-        kmin = (k_min-DBL_EPSILON) * 2*M_PI / L[X]; // Minimum driving wavenumber <~  k_min * 2pi / Lx
-        kmax = (k_max+DBL_EPSILON) * 2*M_PI / L[X]; // Maximum driving wavenumber >~  k_max * 2pi / Lx
-        kmid = kmax; // driving does not support a 2nd PL section (yet)
-        t_decay = L[X] / k_driv / velocity;             // Auto-correlation time, t_turb = Lx / k_driv / velocity;
-                                                        // i.e., turbulent turnover (crossing) time; with k_driv in units of 2pi/Lx
-        dt = t_decay / nsteps_per_t_turb;               // time step in OU process and for creating new driving pattern
-        step = -1;                                      // set internal OU step to -1 for start-up
-        seed = random_seed;                             // copy original seed into local seed;
-                                                        // local seeds gets updated everytime the random number generator is called
-        const double ampl_coeff = 0.15;                 // This is the default amplitude coefficient ('ampl_coeff') that often
-                                                        // (based on Mach ~ 1, naturally-mixed driving) leads to a good match of the
-                                                        // user-to-target velocity dispersion.
-                                                        // However, the amplitudes can be adjusted via ampl_factor_in[X,Y,Z].
-        energy = pow(ampl_coeff*velocity, 3.0) / L[X];  // Energy input rate => driving amplitude ~ sqrt(energy/t_decay).
-                                                        // Note that energy input rate ~ velocity^3 / L_box.
-        OUvar = sqrt(energy/t_decay);                   // set Ornstein-Uhlenbeck (OU) variance
-        // if we auto-adjust the amplitude, we need to read the ampl_factor from the evolution file, on restart (time > 0)
-        if ((ampl_auto_adjust == 1) && (time > 0.0))
-            if (!read_ampl_factor_from_evol_file(time)) return -1;
-        // We raise the user-set ampl_factor to the 1.5th power, so the user can more easily adjust this as a pure factor
-        // of target-to-measured velocity disperion (this is because the amplitude is actually ~ velocity^1.5; see just above).
-        for (int d = 0; d < ncmp; d++) ampl_factor[d] = pow(ampl_factor[d], 1.5);
-        if (verbose) TurbGen_printf("===============================================================================\n");
-        // set solenoidal weight normalisation
-        set_solenoidal_weight_normalisation();
-        // initialise modes
-        init_modes();
-        // initialise Ornstein-Uhlenbeck sequence
-        OU_noise_init();
-        // calculate solenoidal and compressive coefficients (aka, akb) from OUphases
-        get_decomposition_coeffs();
-        // print info
-        if (verbose) print_info("driving");
-        // write header of time evolution file
-        if (verbose) TurbGen_printf("Writing time evolution information to file '%s'.\n", evolfile.c_str());
-        if (PE == 0) {
-            std::ofstream outfilestream(evolfile.c_str(), std::ios::app);
-            outfilestream   << std::setw(24) << "#01_time" << std::setw(24) << "#02_time_in_t_turb"
-                            << std::setw(24) << "#03_ampl_factor_x" << std::setw(24) << "#04_ampl_factor_y" << std::setw(24) << "#05_ampl_factor_z"
-                            << std::setw(24) << "#06_v_turb_prev_x" << std::setw(24) << "#07_v_turb_prev_y" << std::setw(24) << "#08_v_turb_prev_z"
-                            << std::endl;
-            outfilestream.close();
-            outfilestream.clear();
-        }
-        if (verbose) TurbGen_printf("===============================================================================\n");
-        if (verbose > 1) TurbGen_printf(FuncSig(__func__)+"exiting.\n");
+
+        if (!set_state(k_driv, k_min, k_max, time))
+           return -1;
         return 0;
     }; // init_driving
 
@@ -357,7 +313,6 @@ class TurbGen
        if (verbose > 1) TurbGen_printf(FuncSig(__func__)+"entering.\n");
 
        double k_driv, k_min, k_max;
-       const double ampl_coeff = 0.15;
 
        set_param<double>(params, "ndim", ndim);
        set_number_of_components();
@@ -379,42 +334,60 @@ class TurbGen
        }
 
        power_law_exp_2 = power_law_exp;
-       kmin = (k_min - DBL_EPSILON) * 2 * M_PI / L[X];
-       kmax = (k_max + DBL_EPSILON) * 2 * M_PI / L[X];
-       kmid = kmax;
-       t_decay = L[X] / k_driv / velocity;
-       dt = t_decay / nsteps_per_t_turb;
-       step = -1;
-       seed = random_seed;
-       energy = pow(ampl_coeff * velocity, 3.0) / L[X];
-       OUvar = sqrt(energy / t_decay);
+       if (!set_state(k_driv, k_min, k_max, time))
+          return -1;
 
-       // Read ampl_factor from evoluton file on restart if amplitude auto adjust is enabled
-       if (ampl_auto_adjust && (time > 0.0))
-          if (!read_ampl_factor_from_evol_file(time)) return -1;
+       return 0;
+    }
 
-       // User defined amplification factor raised to 1.5th power to easily adjust it as a pure factor
-       for (double &amp : ampl_factor) amp = pow(amp, 1.5);
-       set_solenoidal_weight_normalisation(); // Set solenoidal weight normalization
-       init_modes(); // Initialize modes
-       OU_noise_init(); // Initialise Ornstein-Uhlenbeck sequence
-       get_decomposition_coeffs(); // Calculate solenoidal and compressive coefficients (aka, akb) from OUphases
+    protected:
+    int set_state(const double &k_driv, const double &k_min, const double &k_max, const double &time) {
 
-       if (verbose) {
-          print_info("driving");
-          TurbGen_printf("Writing time evolution information to file '%s'.\n", evolfile.c_str());
-       }
-
+       // define derived physical quantities
+       kmin = (k_min-DBL_EPSILON) * 2*M_PI / L[X]; // Minimum driving wavenumber <~  k_min * 2pi / Lx
+       kmax = (k_max+DBL_EPSILON) * 2*M_PI / L[X]; // Maximum driving wavenumber >~  k_max * 2pi / Lx
+       kmid = kmax; // driving does not support a 2nd PL section (yet)
+       t_decay = L[X] / k_driv / velocity;             // Auto-correlation time, t_turb = Lx / k_driv / velocity;
+                                                       // i.e., turbulent turnover (crossing) time; with k_driv in units of 2pi/Lx
+       dt = t_decay / nsteps_per_t_turb;               // time step in OU process and for creating new driving pattern
+       step = -1;                                      // set internal OU step to -1 for start-up
+       seed = random_seed;                             // copy original seed into local seed;
+                                                       // local seeds gets updated everytime the random number generator is called
+       const double ampl_coeff = 0.15;                 // This is the default amplitude coefficient ('ampl_coeff') that often
+                                                       // (based on Mach ~ 1, naturally-mixed driving) leads to a good match of the
+                                                       // user-to-target velocity dispersion.
+                                                       // However, the amplitudes can be adjusted via ampl_factor_in[X,Y,Z].
+       energy = pow(ampl_coeff*velocity, 3.0) / L[X];  // Energy input rate => driving amplitude ~ sqrt(energy/t_decay).
+                                                       // Note that energy input rate ~ velocity^3 / L_box.
+       OUvar = sqrt(energy/t_decay);                   // set Ornstein-Uhlenbeck (OU) variance
+       // if we auto-adjust the amplitude, we need to read the ampl_factor from the evolution file, on restart (time > 0)
+       if ((ampl_auto_adjust == 1) && (time > 0.0))
+           if (!read_ampl_factor_from_evol_file(time)) return -1;
+       // We raise the user-set ampl_factor to the 1.5th power, so the user can more easily adjust this as a pure factor
+       // of target-to-measured velocity disperion (this is because the amplitude is actually ~ velocity^1.5; see just above).
+       for (int d = 0; d < ncmp; d++) ampl_factor[d] = pow(ampl_factor[d], 1.5);
+       if (verbose) TurbGen_printf("===============================================================================\n");
+       // set solenoidal weight normalisation
+       set_solenoidal_weight_normalisation();
+       // initialise modes
+       init_modes();
+       // initialise Ornstein-Uhlenbeck sequence
+       OU_noise_init();
+       // calculate solenoidal and compressive coefficients (aka, akb) from OUphases
+       get_decomposition_coeffs();
+       // print info
+       if (verbose) print_info("driving");
+       // write header of time evolution file
+       if (verbose) TurbGen_printf("Writing time evolution information to file '%s'.\n", evolfile.c_str());
        if (PE == 0) {
-          std::ofstream ofs(evolfile.c_str(), std::ios::app);
-          ofs << std::setw(24) << "#01_time" << std::setw(24) << "#02_time_in_t_turb"
-              << std::setw(24) << "#03_ampl_factor_x" << std::setw(24) << "#04_ampl_factor_y" << std::setw(24) << "#05_ampl_factor_z"
-              << std::setw(24) << "#06_v_turb_prev_x" << std::setw(24) << "#07_v_turb_prev_y" << std::setw(24) << "#08_v_turb_prev_z"
-              << std::endl;
-          ofs.close();
-          ofs.clear();
+           std::ofstream outfilestream(evolfile.c_str(), std::ios::app);
+           outfilestream   << std::setw(24) << "#01_time" << std::setw(24) << "#02_time_in_t_turb"
+                           << std::setw(24) << "#03_ampl_factor_x" << std::setw(24) << "#04_ampl_factor_y" << std::setw(24) << "#05_ampl_factor_z"
+                           << std::setw(24) << "#06_v_turb_prev_x" << std::setw(24) << "#07_v_turb_prev_y" << std::setw(24) << "#08_v_turb_prev_z"
+                           << std::endl;
+           outfilestream.close();
+           outfilestream.clear();
        }
-
        if (verbose) TurbGen_printf("===============================================================================\n");
        if (verbose > 1) TurbGen_printf(FuncSig(__func__)+"exiting.\n");
 
