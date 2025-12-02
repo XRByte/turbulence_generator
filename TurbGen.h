@@ -30,9 +30,7 @@
 #include <iterator>
 #include <sstream>
 #include <fstream>
-#include <stdexcept>
-#include <type_traits>
-#include <unordered_map>
+#include <tr1/unordered_map>
 #include <vector>
 #include <algorithm>
 #include <string>
@@ -230,7 +228,7 @@ class TurbGen
     }; // init_driving (overloaded)
     // ******************************************************
 
-    public: virtual int init_driving(const std::unordered_map<std::string, std::string> &params) {
+    public: virtual int init_driving(const std::tr1::unordered_map<std::string, std::string> &params) {
         return init_driving(params, 0.0); // call with time = 0.0
     }; // init_driving (overloaded)
     // ******************************************************
@@ -284,7 +282,7 @@ class TurbGen
     }; // init_driving
 
     public:
-    virtual int init_driving(const std::unordered_map<std::string, std::string> &params, const double &time) {
+    virtual int init_driving(const std::tr1::unordered_map<std::string, std::string> &params, const double &time) {
        // ******************************************************
        // Initialize turbulence generator using parameters supplied through an unordered map
        // These parameters are used to drive the turbulence.
@@ -314,23 +312,23 @@ class TurbGen
 
        double k_driv, k_min, k_max;
 
-       set_param<double>(params, "ndim", ndim);
+       ndim = parse_param<double>(read_from_map(params, "ndim"), "ndim");
        set_number_of_components();
 
-       set_param<double [3]>(params, "ampl_factor", ampl_factor);
-       set_param<double [3]>(params, "length", L);
-       set_param<double>(params, "target_vdisp", velocity);
-       set_param<double>(params, "k_driv", k_driv);
-       set_param<double>(params, "k_min", k_min);
-       set_param<double>(params, "k_max", k_max);
-       set_param<double>(params, "sol_weight", sol_weight);
-       set_param<int>(params, "ampl_auto_adjust", ampl_auto_adjust);
-       set_param<int>(params, "spect_form", spect_form);
-       set_param<int>(params, "random_seed", random_seed);
-       set_param<int>(params, "nsteps_per_t_turb", nsteps_per_t_turb);
+       split(read_from_map(params, "ampl_factor"), ampl_factor, ',', "ampl_factor");
+       split(read_from_map(params, "length"), L, ',', "length");
+       velocity = parse_param<double>(read_from_map(params, "target_vdisp"), "target_vdisp");
+       k_driv = parse_param<double>(read_from_map(params, "k_driv"), "k_driv");
+       k_min = parse_param<double>(read_from_map(params, "k_min"), "k_min");
+       k_max = parse_param<double>(read_from_map(params, "k_max"), "k_max");
+       sol_weight = parse_param<double>(read_from_map(params, "sol_weight"), "sol_weight");
+       ampl_auto_adjust = parse_param<int>(read_from_map(params, "ampl_auto_adjust"), "ampl_auto_adjust");
+       spect_form = parse_param<int>(read_from_map(params, "spect_form"), "spect_form");
+       random_seed = parse_param<int>(read_from_map(params, "random_seed"), "random_seed");
+       nsteps_per_t_turb = parse_param<int>(read_from_map(params, "nsteps_per_t_turb"), "nsteps_per_t_turb");
        if (spect_form == 2) {
-         set_param<double>(params, "power_law_exp", power_law_exp);
-         set_param<double>(params, "angles_exp", angles_exp);
+         power_law_exp = parse_param<double>(read_from_map(params, "power_law_exp"), "power_law_exp");
+         angles_exp = parse_param<double>(read_from_map(params, "angles_exp"), "angles_exp");
        }
 
        power_law_exp_2 = power_law_exp;
@@ -1133,18 +1131,10 @@ class TurbGen
        std::vector<double> buffer;
        int param_len;
 
-       try {
-         while (std::getline(ss, token, delimiter)) { // Split string and store in array
-            val = parse_param<double>(token,  param);
-            buffer.push_back(val);
-         }
-       }
-       catch (std::exception &e) { // Raise exception if unable to parse input
-          if (PE == 0) {
-             std::cerr << "Unable to parse " << param << std::endl;
-             exit(1);
-          }
-       }
+      while (std::getline(ss, token, delimiter)) { // Split string and store in array
+         val = parse_param<double>(token,  param);
+         buffer.push_back(val);
+      }
 
        param_len = static_cast<int>(buffer.size());
        if (param_len != ncmp && param_len != 1) { // Raise exception if incorrect number of parameters specified
@@ -1167,61 +1157,37 @@ class TurbGen
        // ******************************************************
 
        T val;
-       std::string type = "integer or double";
+       std::stringstream ss(num);
+       if (!(ss >> val)) {
+               // We manually throw an exception to trigger your catch block
+               throw std::runtime_error("Conversion failed for parameter: " + param);
+           }
+       ss >> val;
 
-       try {
-          if constexpr (std::is_same_v<T, int>) {
-            val = std::stoi(num); // Convert string to integer
-            type = "integer";
-          }
-          else if constexpr (std::is_same_v<T, double>) {
-            val = std::stod(num); // Convert string to double
-            type = "double";
-          }
-       }
-      catch (std::invalid_argument &e) {
-         if (PE == 0) { // Raise exception if input doesn't start with int or double
-            std::cerr << param << " must be an " << type << std::endl;
-         }
-         exit(1);
-      }
 
       return val;
     }
 
-    protected: std::string read_from_map(const std::unordered_map<std::string, std::string> &params, const std::string &param) {
+    protected: std::string read_from_map(const std::tr1::unordered_map<std::string, std::string> &params, const std::string &param) {
        // ******************************************************
        // Read parameters form the supplied hash map in the form of strings
        // ******************************************************
 
-       std::string val;
-       try {
-          val = params.at(param);
+       std::tr1::unordered_map<std::string, std::string>::const_iterator it = params.find(param);
+
+       if (it == params.end()) {
+           if (PE == 0) {
+              std::cerr << "Parameter not found: " << param << std::endl;
+           }
+           exit(1);
        }
-       catch (std::out_of_range &e) {
-         if (PE == 0) { // Raise exception if an invalid map key is entered
-            std::cerr << "Parameter not found: " << param << std::endl;
-         }
-         exit(1);
-       }
+
+       std::string val = it->second;
 
        return val;
     };
 
-    protected:
-    template<typename T>
-    void set_param(const std::unordered_map<std::string, std::string> &params, const std::string &param, T &var) {
-       // ******************************************************
-       // Templated function to parse parameters depending on data type
-       // ******************************************************
 
-      if constexpr (std::is_same_v<T, double[3]>)
-         split(read_from_map(params, param), var, ',', param); // Read double array
-      else if constexpr (std::is_same_v<T, double>)
-         var = parse_param<double>(read_from_map(params, param), param); // Read double
-      else if constexpr (std::is_same_v<T, int>)
-         var = parse_param<int>(read_from_map(params, param), param); // Read integer
-   }
 
     // ******************************************************
     protected: void TurbGen_printf(std::string format, ...) {
