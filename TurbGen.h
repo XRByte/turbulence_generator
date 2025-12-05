@@ -30,7 +30,7 @@
 #include <iterator>
 #include <sstream>
 #include <fstream>
-#include <tr1/unordered_map>
+#include <map>
 #include <vector>
 #include <algorithm>
 #include <string>
@@ -228,7 +228,7 @@ class TurbGen
     }; // init_driving (overloaded)
     // ******************************************************
 
-    public: virtual int init_driving(const std::tr1::unordered_map<std::string, std::string> &params) {
+    public: virtual int init_driving(const std::map<std::string, std::string> &params) {
         return init_driving(params, 0.0); // call with time = 0.0
     }; // init_driving (overloaded)
     // ******************************************************
@@ -282,7 +282,7 @@ class TurbGen
     }; // init_driving
 
     public:
-    virtual int init_driving(const std::tr1::unordered_map<std::string, std::string> &params, const double &time) {
+    virtual int init_driving(const std::map<std::string, std::string> &params, const double &time) {
        // ******************************************************
        // Initialize turbulence generator using parameters supplied through an unordered map
        // These parameters are used to drive the turbulence.
@@ -1168,12 +1168,12 @@ class TurbGen
       return val;
     }
 
-    protected: std::string read_from_map(const std::tr1::unordered_map<std::string, std::string> &params, const std::string &param) {
+    protected: std::string read_from_map(const std::map<std::string, std::string> &params, const std::string &param) {
        // ******************************************************
        // Read parameters form the supplied hash map in the form of strings
        // ******************************************************
 
-       std::tr1::unordered_map<std::string, std::string>::const_iterator it = params.find(param);
+       std::map<std::string, std::string>::const_iterator it = params.find(param);
 
        if (it == params.end()) {
            if (PE == 0) {

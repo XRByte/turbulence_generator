@@ -8,7 +8,7 @@
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
-#include <tr1/unordered_map>
+#include <map>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -103,7 +103,7 @@ class TurbGenEx : public TurbGen
 	TurbGenEx()
         : TurbGen(amrex::ParallelDescriptor::MyProc()) {}
 
-   int init_driving(const std::tr1::unordered_map<std::string, std::string> &params) override
+   int init_driving(const std::map<std::string, std::string> &params) override
 	{
 		TurbGen::init_driving(params);
 		initial_sync_to_gpu();
