@@ -145,7 +145,6 @@ class TurbGen
     public: std::vector<double> get_amplitudes(void) {
         return ampl;
     };
-    // ******************************************************
 
     // ******************************************************
     private: void set_number_of_components(void) {
@@ -159,14 +158,12 @@ class TurbGen
         if (ndim == 2) ncmp = 2;
         if ((ndim == 1.5) || (ndim == 2.5) || (ndim == 3)) ncmp = 3;
     };
-    // ******************************************************
 
     // ******************************************************
     private: void set_solenoidal_weight_normalisation(void) {
         // this makes the rms of the turbulent field independent of the solenoidal weight (see Eq. 9 in Federrath et al. 2010)
         sol_weight_norm = sqrt(3.0/ncmp)*sqrt(3.0)*1.0/sqrt(1.0-2.0*sol_weight+ncmp*pow(sol_weight,2.0));
     };
-    // ******************************************************
 
     // ******************************************************
     public: int init_single_realisation(
@@ -177,6 +174,7 @@ class TurbGen
                                         spect_form, power_law_exp, power_law_exp, angles_exp,
                                         sol_weight, random_seed );
     }; // init_single_realisation (overloaded)
+
     // ******************************************************
     public: int init_single_realisation(
         const double ndim, const double L[3], const double k_min, const double k_mid, const double k_max,
@@ -226,13 +224,13 @@ class TurbGen
     public: virtual int init_driving(std::string parameter_file) {
         return init_driving(parameter_file, 0.0); // call with time = 0.0
     }; // init_driving (overloaded)
-    // ******************************************************
 
+    // ******************************************************
     public: virtual int init_driving(const std::map<std::string, std::string> &params) {
         return init_driving(params, 0.0); // call with time = 0.0
     }; // init_driving (overloaded)
-    // ******************************************************
 
+    // ******************************************************
     public: virtual int init_driving(std::string parameter_file, const double time) {
         // ******************************************************
         // Initialise the turbulence generator and all relevant internal data structures by reading from 'parameter_file'.
@@ -275,14 +273,11 @@ class TurbGen
         ret = read_from_parameter_file("ampl_auto_adjust", "i"); ampl_auto_adjust = (int)ret[0]; // automatic amplitude adjustment switch
         ret = read_from_parameter_file("random_seed", "i"); random_seed = (int)ret[0]; // random seed
         ret = read_from_parameter_file("nsteps_per_t_turb", "i"); nsteps_per_t_turb = (int)ret[0]; // number of pattern updates per t_decay
-
-        if (!set_state(k_driv, k_min, k_max, time))
-           return -1;
-        return 0;
+        return finalise_init_driving(k_driv, k_min, k_max, time);
     }; // init_driving
 
-    public:
-    virtual int init_driving(const std::map<std::string, std::string> &params, const double &time) {
+    // ******************************************************
+    public: virtual int init_driving(const std::map<std::string, std::string> &params, const double &time) {
        // ******************************************************
        // Initialize turbulence generator using parameters supplied through an unordered map
        // These parameters are used to drive the turbulence.
@@ -307,14 +302,10 @@ class TurbGen
        //
        // Other variables used are the same as the above overload of init_driving
        // ******************************************************
-
        if (verbose > 1) TurbGen_printf(FuncSig(__func__)+"entering.\n");
-
        double k_driv, k_min, k_max;
-
        ndim = parse_param<double>(read_from_map(params, "ndim"), "ndim");
        set_number_of_components();
-
        split(read_from_map(params, "ampl_factor"), ampl_factor, ',', "ampl_factor");
        split(read_from_map(params, "length"), L, ',', "length");
        velocity = parse_param<double>(read_from_map(params, "target_vdisp"), "target_vdisp");
@@ -330,17 +321,12 @@ class TurbGen
          power_law_exp = parse_param<double>(read_from_map(params, "power_law_exp"), "power_law_exp");
          angles_exp = parse_param<double>(read_from_map(params, "angles_exp"), "angles_exp");
        }
-
        power_law_exp_2 = power_law_exp;
-       if (!set_state(k_driv, k_min, k_max, time))
-          return -1;
-
-       return 0;
+       return finalise_init_driving(k_driv, k_min, k_max, time);
     }
 
-    protected:
-    int set_state(const double &k_driv, const double &k_min, const double &k_max, const double &time) {
-
+    // ******************************************************
+    protected: int finalise_init_driving(const double &k_driv, const double &k_min, const double &k_max, const double &time) {
        // define derived physical quantities
        kmin = (k_min-DBL_EPSILON) * 2*M_PI / L[X]; // Minimum driving wavenumber <~  k_min * 2pi / Lx
        kmax = (k_max+DBL_EPSILON) * 2*M_PI / L[X]; // Maximum driving wavenumber >~  k_max * 2pi / Lx
@@ -388,7 +374,6 @@ class TurbGen
        }
        if (verbose) TurbGen_printf("===============================================================================\n");
        if (verbose > 1) TurbGen_printf(FuncSig(__func__)+"exiting.\n");
-
        return 0;
     }
 
@@ -771,7 +756,7 @@ class TurbGen
         if (verbose > 1) TurbGen_printf(FuncSig(__func__)+"entering.\n");
 
         int ikmin[3], ikmax[3], ik[3], tot_nmodes_full_sampling;
-        double k[3], ka, kc, amplitude = 0.0, parab_prefact;
+        double k[3], ka, kc, amplitude, parab_prefact;
 
         // applies in case of power law (spect_form == 2)
         int iang, nang;
