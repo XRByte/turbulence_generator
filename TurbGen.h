@@ -30,6 +30,7 @@
 #include <iterator>
 #include <sstream>
 #include <fstream>
+#include <map>
 #include <vector>
 #include <algorithm>
 #include <string>
@@ -58,7 +59,7 @@ namespace NameSpaceTurbGen {
 
 class TurbGen
 {
-    private:
+    protected:
         enum {X, Y, Z};
         int verbose; // shell output level (0: no output, 1: standard output, 2: more output)
         std::string ClassSignature; // class signature
@@ -111,7 +112,7 @@ class TurbGen
     };
 
     // get function signature for printing to stdout
-    private: std::string FuncSig(const std::string func_name)
+    protected: std::string FuncSig(const std::string func_name)
     { return func_name+": "; };
 
     // ******************************************************
@@ -222,11 +223,17 @@ class TurbGen
     }; // init_single_realisation
 
     // ******************************************************
-    public: int init_driving(std::string parameter_file) {
+    public: virtual int init_driving(std::string parameter_file) {
         return init_driving(parameter_file, 0.0); // call with time = 0.0
     }; // init_driving (overloaded)
     // ******************************************************
-    public: int init_driving(std::string parameter_file, const double time) {
+
+    public: virtual int init_driving(const std::map<std::string, std::string> &params) {
+        return init_driving(params, 0.0); // call with time = 0.0
+    }; // init_driving (overloaded)
+    // ******************************************************
+
+    public: virtual int init_driving(std::string parameter_file, const double time) {
         // ******************************************************
         // Initialise the turbulence generator and all relevant internal data structures by reading from 'parameter_file'.
         // This is used for driving turbulence (as opposed to init_single_realisation, which is for creating a single pattern).
@@ -253,7 +260,7 @@ class TurbGen
         dummystream << ncmp; dummystream >> ncmp_str; dummystream.clear();
         // read remaining parameters from file
         ret = read_from_parameter_file("L", ncmp_str+"d"); // Length of domain (box) x[y[z]]
-        for (unsigned int d = 0; d < ncmp; d++) L[d] = ret[d];
+        for (int d = 0; d < ncmp; d++) L[d] = ret[d];
         ret = read_from_parameter_file("velocity", "d"); velocity = ret[0]; // Target turbulent velocity dispersion
         ret = read_from_parameter_file("k_driv", "d"); k_driv = ret[0]; // driving wavenumber in 2pi/L; sets t_decay below
         ret = read_from_parameter_file("k_min", "d"); k_min = ret[0]; // min wavenumber in 2pi/L
@@ -264,59 +271,126 @@ class TurbGen
         power_law_exp_2 = power_law_exp; // driving does not support a 2nd PL section (yet)
         ret = read_from_parameter_file("angles_exp", "d"); angles_exp = ret[0]; // angles sampling exponent (if spect_form=2)
         ret = read_from_parameter_file("ampl_factor", ncmp_str+"d"); // adjust driving amplitude by factor in x[y[z]] (to adjust to target velocity)
-        for (unsigned int d = 0; d < ncmp; d++) ampl_factor[d] = ret[d];
+        for (int d = 0; d < ncmp; d++) ampl_factor[d] = ret[d];
         ret = read_from_parameter_file("ampl_auto_adjust", "i"); ampl_auto_adjust = (int)ret[0]; // automatic amplitude adjustment switch
         ret = read_from_parameter_file("random_seed", "i"); random_seed = (int)ret[0]; // random seed
         ret = read_from_parameter_file("nsteps_per_t_turb", "i"); nsteps_per_t_turb = (int)ret[0]; // number of pattern updates per t_decay
-        // define derived physical quantities
-        kmin = (k_min-DBL_EPSILON) * 2*M_PI / L[X]; // Minimum driving wavenumber <~  k_min * 2pi / Lx
-        kmax = (k_max+DBL_EPSILON) * 2*M_PI / L[X]; // Maximum driving wavenumber >~  k_max * 2pi / Lx
-        kmid = kmax; // driving does not support a 2nd PL section (yet)
-        t_decay = L[X] / k_driv / velocity;             // Auto-correlation time, t_turb = Lx / k_driv / velocity;
-                                                        // i.e., turbulent turnover (crossing) time; with k_driv in units of 2pi/Lx
-        dt = t_decay / nsteps_per_t_turb;               // time step in OU process and for creating new driving pattern
-        step = -1;                                      // set internal OU step to -1 for start-up
-        seed = random_seed;                             // copy original seed into local seed;
-                                                        // local seeds gets updated everytime the random number generator is called
-        const double ampl_coeff = 0.15;                 // This is the default amplitude coefficient ('ampl_coeff') that often
-                                                        // (based on Mach ~ 1, naturally-mixed driving) leads to a good match of the
-                                                        // user-to-target velocity dispersion.
-                                                        // However, the amplitudes can be adjusted via ampl_factor_in[X,Y,Z].
-        energy = pow(ampl_coeff*velocity, 3.0) / L[X];  // Energy input rate => driving amplitude ~ sqrt(energy/t_decay).
-                                                        // Note that energy input rate ~ velocity^3 / L_box.
-        OUvar = sqrt(energy/t_decay);                   // set Ornstein-Uhlenbeck (OU) variance
-        // if we auto-adjust the amplitude, we need to read the ampl_factor from the evolution file, on restart (time > 0)
-        if ((ampl_auto_adjust == 1) && (time > 0.0))
-            if (!read_ampl_factor_from_evol_file(time)) return -1;
-        // We raise the user-set ampl_factor to the 1.5th power, so the user can more easily adjust this as a pure factor
-        // of target-to-measured velocity disperion (this is because the amplitude is actually ~ velocity^1.5; see just above).
-        for (unsigned int d = 0; d < ncmp; d++) ampl_factor[d] = pow(ampl_factor[d], 1.5);
-        if (verbose) TurbGen_printf("===============================================================================\n");
-        // set solenoidal weight normalisation
-        set_solenoidal_weight_normalisation();
-        // initialise modes
-        init_modes();
-        // initialise Ornstein-Uhlenbeck sequence
-        OU_noise_init();
-        // calculate solenoidal and compressive coefficients (aka, akb) from OUphases
-        get_decomposition_coeffs();
-        // print info
-        if (verbose) print_info("driving");
-        // write header of time evolution file
-        if (verbose) TurbGen_printf("Writing time evolution information to file '%s'.\n", evolfile.c_str());
-        if (PE == 0) {
-            std::ofstream outfilestream(evolfile.c_str(), std::ios::app);
-            outfilestream   << std::setw(24) << "#01_time" << std::setw(24) << "#02_time_in_t_turb"
-                            << std::setw(24) << "#03_ampl_factor_x" << std::setw(24) << "#04_ampl_factor_y" << std::setw(24) << "#05_ampl_factor_z"
-                            << std::setw(24) << "#06_v_turb_prev_x" << std::setw(24) << "#07_v_turb_prev_y" << std::setw(24) << "#08_v_turb_prev_z"
-                            << std::endl;
-            outfilestream.close();
-            outfilestream.clear();
-        }
-        if (verbose) TurbGen_printf("===============================================================================\n");
-        if (verbose > 1) TurbGen_printf(FuncSig(__func__)+"exiting.\n");
+
+        if (!set_state(k_driv, k_min, k_max, time))
+           return -1;
         return 0;
     }; // init_driving
+
+    public:
+    virtual int init_driving(const std::map<std::string, std::string> &params, const double &time) {
+       // ******************************************************
+       // Initialize turbulence generator using parameters supplied through an unordered map
+       // These parameters are used to drive the turbulence.
+       // Supported map keys are as follows:
+       //
+       // ndim:                            Number of spatial dimensions (1, 1.5, 2, 2.5 or 3)
+       // ampl_factor:                     Automatic amplitude adjustment factor. Can be one number
+       //                                  or comma sepatated list of numbers
+       // length:                          Length of domain box. Can be one number or comma
+       //                                  separated list of numbers
+       // target_vdisp:                    Target turbulent velocity dispersion
+       // ampl_auto_adjust:                Automatic amplitude adjustment switch
+       // k_driv:                          Driving wavenumber in units of 2pi/L; Sets t_decay
+       // k_min:                           Min wavenumber in units of 2pi/L
+       // k_max:                           Max wavenumber in units of 2pi/L
+       // sol_weight:                      Solenoidal weight
+       // spect_form:                      Spectral form
+       // power_law_exp:                   Power-law exponent (if spectral form = 2)
+       // angles_exp:                      Angles sampling exponent if (spectral form = 2)
+       // random_seed:                     Random seed value
+       // nsteps_per_t_turb:               Number of pattern updates per t_decay
+       //
+       // Other variables used are the same as the above overload of init_driving
+       // ******************************************************
+
+       if (verbose > 1) TurbGen_printf(FuncSig(__func__)+"entering.\n");
+
+       double k_driv, k_min, k_max;
+
+       ndim = parse_param<double>(read_from_map(params, "ndim"), "ndim");
+       set_number_of_components();
+
+       split(read_from_map(params, "ampl_factor"), ampl_factor, ',', "ampl_factor");
+       split(read_from_map(params, "length"), L, ',', "length");
+       velocity = parse_param<double>(read_from_map(params, "target_vdisp"), "target_vdisp");
+       k_driv = parse_param<double>(read_from_map(params, "k_driv"), "k_driv");
+       k_min = parse_param<double>(read_from_map(params, "k_min"), "k_min");
+       k_max = parse_param<double>(read_from_map(params, "k_max"), "k_max");
+       sol_weight = parse_param<double>(read_from_map(params, "sol_weight"), "sol_weight");
+       ampl_auto_adjust = parse_param<int>(read_from_map(params, "ampl_auto_adjust"), "ampl_auto_adjust");
+       spect_form = parse_param<int>(read_from_map(params, "spect_form"), "spect_form");
+       random_seed = parse_param<int>(read_from_map(params, "random_seed"), "random_seed");
+       nsteps_per_t_turb = parse_param<int>(read_from_map(params, "nsteps_per_t_turb"), "nsteps_per_t_turb");
+       if (spect_form == 2) {
+         power_law_exp = parse_param<double>(read_from_map(params, "power_law_exp"), "power_law_exp");
+         angles_exp = parse_param<double>(read_from_map(params, "angles_exp"), "angles_exp");
+       }
+
+       power_law_exp_2 = power_law_exp;
+       if (!set_state(k_driv, k_min, k_max, time))
+          return -1;
+
+       return 0;
+    }
+
+    protected:
+    int set_state(const double &k_driv, const double &k_min, const double &k_max, const double &time) {
+
+       // define derived physical quantities
+       kmin = (k_min-DBL_EPSILON) * 2*M_PI / L[X]; // Minimum driving wavenumber <~  k_min * 2pi / Lx
+       kmax = (k_max+DBL_EPSILON) * 2*M_PI / L[X]; // Maximum driving wavenumber >~  k_max * 2pi / Lx
+       kmid = kmax; // driving does not support a 2nd PL section (yet)
+       t_decay = L[X] / k_driv / velocity;             // Auto-correlation time, t_turb = Lx / k_driv / velocity;
+                                                       // i.e., turbulent turnover (crossing) time; with k_driv in units of 2pi/Lx
+       dt = t_decay / nsteps_per_t_turb;               // time step in OU process and for creating new driving pattern
+       step = -1;                                      // set internal OU step to -1 for start-up
+       seed = random_seed;                             // copy original seed into local seed;
+                                                       // local seeds gets updated everytime the random number generator is called
+       const double ampl_coeff = 0.15;                 // This is the default amplitude coefficient ('ampl_coeff') that often
+                                                       // (based on Mach ~ 1, naturally-mixed driving) leads to a good match of the
+                                                       // user-to-target velocity dispersion.
+                                                       // However, the amplitudes can be adjusted via ampl_factor_in[X,Y,Z].
+       energy = pow(ampl_coeff*velocity, 3.0) / L[X];  // Energy input rate => driving amplitude ~ sqrt(energy/t_decay).
+                                                       // Note that energy input rate ~ velocity^3 / L_box.
+       OUvar = sqrt(energy/t_decay);                   // set Ornstein-Uhlenbeck (OU) variance
+       // if we auto-adjust the amplitude, we need to read the ampl_factor from the evolution file, on restart (time > 0)
+       if ((ampl_auto_adjust == 1) && (time > 0.0))
+           if (!read_ampl_factor_from_evol_file(time)) return -1;
+       // We raise the user-set ampl_factor to the 1.5th power, so the user can more easily adjust this as a pure factor
+       // of target-to-measured velocity disperion (this is because the amplitude is actually ~ velocity^1.5; see just above).
+       for (int d = 0; d < ncmp; d++) ampl_factor[d] = pow(ampl_factor[d], 1.5);
+       if (verbose) TurbGen_printf("===============================================================================\n");
+       // set solenoidal weight normalisation
+       set_solenoidal_weight_normalisation();
+       // initialise modes
+       init_modes();
+       // initialise Ornstein-Uhlenbeck sequence
+       OU_noise_init();
+       // calculate solenoidal and compressive coefficients (aka, akb) from OUphases
+       get_decomposition_coeffs();
+       // print info
+       if (verbose) print_info("driving");
+       // write header of time evolution file
+       if (verbose) TurbGen_printf("Writing time evolution information to file '%s'.\n", evolfile.c_str());
+       if (PE == 0) {
+           std::ofstream outfilestream(evolfile.c_str(), std::ios::app);
+           outfilestream   << std::setw(24) << "#01_time" << std::setw(24) << "#02_time_in_t_turb"
+                           << std::setw(24) << "#03_ampl_factor_x" << std::setw(24) << "#04_ampl_factor_y" << std::setw(24) << "#05_ampl_factor_z"
+                           << std::setw(24) << "#06_v_turb_prev_x" << std::setw(24) << "#07_v_turb_prev_y" << std::setw(24) << "#08_v_turb_prev_z"
+                           << std::endl;
+           outfilestream.close();
+           outfilestream.clear();
+       }
+       if (verbose) TurbGen_printf("===============================================================================\n");
+       if (verbose > 1) TurbGen_printf(FuncSig(__func__)+"exiting.\n");
+
+       return 0;
+    }
 
     // ******************************************************
     public: bool check_for_update(const double time) {
@@ -326,7 +400,7 @@ class TurbGen
     }; // check_for_update(time)
 
     // ******************************************************
-    public: bool check_for_update(const double time, const double v_turb[]) {
+    public: virtual bool check_for_update(const double time, const double v_turb[]) {
         // ******************************************************
         // Update driving pattern based on input 'time'.
         // If it is 'time' to update the pattern, call OU noise update
@@ -417,14 +491,14 @@ class TurbGen
                 std::vector<std::string> line_split((std::istream_iterator<std::string>(buffer)), std::istream_iterator<std::string>());
                 double time_in_file = double(atof(line_split[0].c_str())); // time
                 double ampl_factor_in_file[3];
-                for (unsigned int d = 0; d < ncmp; d++) ampl_factor_in_file[d] = double(atof(line_split[d+2].c_str()));
+                for (int d = 0; d < ncmp; d++) ampl_factor_in_file[d] = double(atof(line_split[d+2].c_str()));
                 if (verbose > 1) TurbGen_printf("time_in_file, ampl_factor_in_file = %e %e %e %e\n", time_in_file, ampl_factor_in_file[X], ampl_factor_in_file[Y], ampl_factor_in_file[Z]);
                 if (!initial_copy_done) { // copy the last valid ampl_factor from the evolution file
-                    for (unsigned int d = 0; d < ncmp; d++) ampl_factor[d] = ampl_factor_in_file[d];
+                    for (int d = 0; d < ncmp; d++) ampl_factor[d] = ampl_factor_in_file[d];
                     initial_copy_done = true;
                 }
                 if (time_in_file >= time-1.1*dt) { // search backwards and update ampl_factor with last valid time
-                    for (unsigned int d = 0; d < ncmp; d++) ampl_factor[d] = ampl_factor_in_file[d];
+                    for (int d = 0; d < ncmp; d++) ampl_factor[d] = ampl_factor_in_file[d];
                 }
                 else break;
             }
@@ -697,7 +771,7 @@ class TurbGen
         if (verbose > 1) TurbGen_printf(FuncSig(__func__)+"entering.\n");
 
         int ikmin[3], ikmax[3], ik[3], tot_nmodes_full_sampling;
-        double k[3], ka, kc, amplitude, parab_prefact;
+        double k[3], ka, kc, amplitude = 0.0, parab_prefact;
 
         // applies in case of power law (spect_form == 2)
         int iang, nang;
@@ -763,7 +837,7 @@ class TurbGen
                             if (spect_form == 0) amplitude = 1.0;                                    // Band
                             if (spect_form == 1) amplitude = fabs(parab_prefact*pow(ka-kc,2.0)+1.0); // Parabola
 
-                            // note: power spectrum ~ amplitude^2 (1D), amplitude^2 * 2pi k (2D), amplitude^2 * 4pi k^2 (3D) 
+                            // note: power spectrum ~ amplitude^2 (1D), amplitude^2 * 2pi k (2D), amplitude^2 * 4pi k^2 (3D)
                             amplitude = sqrt(amplitude) * pow(kc/ka,((int)ndim-1)/2.0);
                             ampl.push_back(amplitude);
 
@@ -1046,9 +1120,77 @@ class TurbGen
         return ret;
     }; // ran2
 
+    protected: void split(const std::string &line, double vals[3], char delimiter, const std::string &param) {
+       // ******************************************************
+       // Split string into array of doubles depending on delimiter
+       // ******************************************************
+
+       std::stringstream ss(line);
+       std::string token;
+       double val;
+       std::vector<double> buffer;
+       int param_len;
+
+      while (std::getline(ss, token, delimiter)) { // Split string and store in array
+         val = parse_param<double>(token,  param);
+         buffer.push_back(val);
+      }
+
+       param_len = static_cast<int>(buffer.size());
+       if (param_len != ncmp && param_len != 1) { // Raise exception if incorrect number of parameters specified
+          if (PE == 0) {
+             std::cerr << "Invalid number of parameters specified for " << param << ": " << param_len << std::endl;
+          }
+          exit(1);
+       }
+
+       // Set supplied array
+       for (int i=0; i<ncmp; i++) vals[i] = param_len == 1 ? buffer[0] : buffer[i];
+
+    }
+
+    protected:
+    template<typename T>
+    T parse_param(const std::string &num, const std::string &param) {
+       // ******************************************************
+       // Templated function to parse integer and double parameter
+       // ******************************************************
+
+       T val;
+       std::stringstream ss(num);
+       if (!(ss >> val)) {
+               // We manually throw an exception to trigger your catch block
+               throw std::runtime_error("Conversion failed for parameter: " + param);
+           }
+       ss >> val;
+
+
+      return val;
+    }
+
+    protected: std::string read_from_map(const std::map<std::string, std::string> &params, const std::string &param) {
+       // ******************************************************
+       // Read parameters form the supplied hash map in the form of strings
+       // ******************************************************
+
+       std::map<std::string, std::string>::const_iterator it = params.find(param);
+
+       if (it == params.end()) {
+           if (PE == 0) {
+              std::cerr << "Parameter not found: " << param << std::endl;
+           }
+           exit(1);
+       }
+
+       std::string val = it->second;
+
+       return val;
+    };
+
+
 
     // ******************************************************
-    private: void TurbGen_printf(std::string format, ...) {
+    protected: void TurbGen_printf(std::string format, ...) {
         // ******************************************************
         // special printf prepends string and only lets PE=0 print
         // ******************************************************
@@ -1060,7 +1202,7 @@ class TurbGen
     }; // TurbGen_printf
 
     // ******************************************************
-    private: void TurbGen_printf_raw(std::string format, ...) {
+    protected: void TurbGen_printf_raw(std::string format, ...) {
         // ******************************************************
         // special printf prepends string and only lets PE=0 print
         // ******************************************************
